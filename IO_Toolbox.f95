@@ -1,6 +1,13 @@
 module IO_Toolbox
     implicit none
 
+    !Input/Output Toolbox - Contains subroutines for reading and
+    !writing matrices to CSV files and printing vectors and matrices.
+
+    !Last Update: 5/25/2024
+
+    !Author: BHD
+
     ! Define the kind for real numbers
     ! 15 = number of decimal digits
     ! 307 = number of bits
@@ -115,22 +122,22 @@ subroutine read_matrix(matrix, filename)
     ! Return the matrix
     matrix = temp_matrix
 
-contains
-    subroutine get_token(line, pos, token)
-        ! This subroutine extracts a token from a line starting at position pos
-        character(len=*), intent(in) :: line
-        integer, intent(inout) :: pos
-        character(len=15), intent(out) :: token
-        integer :: start, end
+    contains
+        subroutine get_token(line, pos, token)
+            ! This subroutine extracts a token from a line starting at position pos
+            character(len=*), intent(in) :: line
+            integer, intent(inout) :: pos
+            character(len=15), intent(out) :: token
+            integer :: start, end
 
-        start = pos
-        end = index(line(start:), ',') - 1
-        if (end == -1) then
-            end = len_trim(line) - start + 1
-        end if
-        token = line(start:start+end-1)
-        pos = start + end + 1
-    end subroutine get_token
+            start = pos
+            end = index(line(start:), ',') - 1
+            if (end == -1) then
+                end = len_trim(line) - start + 1
+            end if
+            token = line(start:start+end-1)
+            pos = start + end + 1
+        end subroutine get_token
 
 end subroutine read_matrix
 
