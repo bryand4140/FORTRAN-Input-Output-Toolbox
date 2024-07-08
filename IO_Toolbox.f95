@@ -40,6 +40,8 @@ subroutine write_matrix(matrix, filename)
     end if
 
     ! Write the matrix to the file
+    print*, " " !Spacer
+    write(*,"(A)") "Writing matrix to file ", filename
     do i = 1, size(matrix, 1)
         do j = 1, size(matrix, 2)
             write(value, '(F15.5)') matrix(i,j)
@@ -54,6 +56,8 @@ subroutine write_matrix(matrix, filename)
 
     ! Close the file
     close(10)
+    write(*,"(A)") "File write Complete."
+    print*, " " !Spacer
 
 end subroutine write_matrix
 
