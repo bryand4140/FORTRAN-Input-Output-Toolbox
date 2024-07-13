@@ -7,11 +7,18 @@
             "command": "gfortran",
             "args": [
                 "-c",
-                "IO_Toolbox.f95"
+                "${workspaceFolder}/IO_Toolbox.f95"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "presentation": {
+                "reveal": "always",
+                "echo": true,
+                "focus": false,
+                "panel": "shared"
             }
         },
         {
@@ -19,28 +26,37 @@
             "type": "shell",
             "command": "gfortran",
             "args": [
-                "main.f95",
+                "${workspaceFolder}/main.f95",
                 "-o",
-                "main",
-                "IO_Toolbox.o"
+                "${workspaceFolder}/main",
+                "${workspaceFolder}/IO_Toolbox.o"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
+            "problemMatcher": ["$gcc"],
             "presentation": {
-                "reveal": "always"
+                "reveal": "always",
+                "echo": true,
+                "focus": false,
+                "panel": "shared"
             },
-            "problemMatcher": [],
             "dependsOn": ["Compile IO_Toolbox"]
         },
         {
             "label": "Execute Main",
             "type": "shell",
-            "command": "main",
+            "command": "${workspaceFolder}/main",
             "group": {
                 "kind": "test",
                 "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "echo": true,
+                "focus": false,
+                "panel": "shared"
             },
             "dependsOn": ["Compile Main"]
         }

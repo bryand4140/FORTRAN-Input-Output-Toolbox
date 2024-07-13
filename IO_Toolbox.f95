@@ -146,155 +146,147 @@ subroutine read_matrix(matrix, filename)
 end subroutine read_matrix
 
 
-! subroutine write_matrix_with_labels(matrix, filename, column_labels)
-!     ! This subroutine writes a matrix with column labels to a CSV file. 
-!     ! The column labels are written in the first row of the file. 
-!     !Inputs
-!     ! matrix: The matrix to be written to the file
-!     ! filename: The name of the file to write to
-!     ! column_labels: An array of strings containing the column labels
-!     implicit none
+subroutine write_matrix_with_labels(matrix, filename, column_labels)
+    ! This subroutine writes a matrix with column labels to a CSV file
+    implicit none
+    real(pv), intent(in) :: matrix(:,:)
+    character(len=*), intent(in) :: filename
+    character(len=15), intent(in) :: column_labels(:)
+    integer :: i, j, status
+    character(len=20) :: value
+    character(len=20) :: label
 
-!     ! Declare the input arguments
-!     real(pv), intent(in) :: matrix(:,:)
-!     character(len=*), intent(in) :: filename
-!     character(len=15), intent(in) :: column_labels(:)
+    ! Open the file for writing
+    open(unit=10, file=filename, status='replace', action='write', form='formatted', iostat=status)
+    if (status /= 0) then
+        print*, 'Error opening file ', filename
+        stop
+    end if
 
-!     ! Declare local variables
-!     integer :: i, j
-!     integer :: status
-!     character(len=15) :: value
+    ! Write the column labels to the file
+    do j = 1, size(column_labels)
+        write(label, '(A20)') trim(column_labels(j))
+        if (j < size(column_labels)) then
+            write(10, '(A)', advance='no') trim(label) // ','
+        else
+            write(10, '(A)', advance='no') trim(label)
+        end if
+    end do
+    write(10, *)
 
-!     ! Open the file for writing
-!     open(unit=10, file=filename, status='replace', action='write', &
-!          form='formatted', iostat=status)
-!     if (status /= 0) then
-!         print*, 'Error opening file ', filename
-!         stop
-!     end if
+    ! Write the matrix to the file
+    do i = 1, size(matrix, 1)
+        do j = 1, size(matrix, 2)
+            write(value, '(F20.5)') matrix(i,j)
+            if (j < size(matrix, 2)) then
+                write(10, '(A)', advance='no') trim(value) // ','
+            else
+                write(10, '(A)', advance='no') trim(value)
+            end if
+        end do
+        write(10, *)
+    end do
 
-!     ! Write the column labels to the file
-!     do j = 1, size(column_labels)
-!         if (j < size(column_labels)) then
-!             write(10, '(A)', advance='no') trim(column_labels(j)) // ','
-!         else
-!             write(10, '(A)', advance='no') trim(column_labels(j))
-!         end if
-!     end do
-!     write(10, *)
-
-!     ! Write the matrix to the file
-!     do i = 1, size(matrix, 1)
-!         do j = 1, size(matrix, 2)
-!             write(value, '(F15.5)') matrix(i,j)
-!             if (j < size(matrix, 2)) then
-!                 write(10, '(A)', advance='no') trim(value) // ','
-!             else
-!                 write(10, '(A)', advance='no') trim(value)
-!             end if
-!         end do
-!         write(10, *)
-!     end do
-
-!     ! Close the file
-!     close(10)
-!     write(*,"(A)") "File write Complete."
-
-! end subroutine write_matrix_with_labels
+    ! Close the file
+    close(10)
+end subroutine write_matrix_with_labels
 
 
-! subroutine read_matrix_with_labels(matrix, filename, column_labels)
-!     ! This subroutine reads a CSV file with column labels into a matrix
-!     implicit none
 
-!     ! Declare the input arguments
-!     character(len=*), intent(in) :: filename
-!     real(pv), allocatable, intent(out) :: matrix(:,:)
-!     character(len=15), allocatable, intent(out) :: column_labels(:)
 
-!     ! Declare local variables
-!     integer :: i, j, ios, nrows, ncols, pos
-!     character(len=1000) :: line
-!     character(len=15) :: token
-!     real, allocatable :: temp_matrix(:,:)
-!     logical :: end_of_file
 
-!     ! Open the file for reading
-!     open(unit=10, file=filename, status='old', action='read', &
-!          form='formatted', iostat=ios)
-!     if (ios /= 0) then
-!         print*, 'Error opening file ', filename
-!         stop
-!     end if
+subroutine read_matrix_with_labels(matrix, filename, column_labels)
+    ! This subroutine reads a CSV file with column labels into a matrix
+    implicit none
 
-!     ! Read the column labels
-!     read(10, '(A)', iostat=ios) line
-!     if (ios /= 0) then
-!         print*, 'Error reading column labels from file ', filename
-!         stop
-!     end if
-!     ncols = 1
-!     do pos = 1, len_trim(line)
-!         if (line(pos:pos) == ',') ncols = ncols + 1
-!     end do
-!     allocate(column_labels(ncols))
-!     pos = 1
-!     do j = 1, ncols
-!         call get_token(line, pos, column_labels(j))
-!     end do
+    ! Declare the input arguments
+    character(len=*), intent(in) :: filename
+    real(pv), allocatable, intent(out) :: matrix(:,:)
+    character(len=15), allocatable, intent(out) :: column_labels(:)
 
-!     ! Determine the number of rows
-!     nrows = 0
-!     do
-!         read(10, '(A)', iostat=ios) line
-!         if (ios /= 0) exit
-!         nrows = nrows + 1
-!     end do
+    ! Declare local variables
+    integer :: i, j, ios, nrows, ncols, pos
+    character(len=1000) :: line
+    character(len=15) :: token
+    real, allocatable :: temp_matrix(:,:)
+    logical :: end_of_file
 
-!     ! Allocate the matrix
-!     allocate(temp_matrix(nrows, ncols))
+    ! Open the file for reading
+    open(unit=10, file=filename, status='old', action='read', &
+         form='formatted', iostat=ios)
+    if (ios /= 0) then
+        print*, 'Error opening file ', filename
+        stop
+    end if
 
-!     ! Rewind the file to the beginning and skip the first line (column labels)
-!     rewind(10)
-!     read(10, '(A)', iostat=ios) line
+    ! Read the column labels
+    read(10, '(A)', iostat=ios) line
+    if (ios /= 0) then
+        print*, 'Error reading column labels from file ', filename
+        stop
+    end if
+    ncols = 1
+    do pos = 1, len_trim(line)
+        if (line(pos:pos) == ',') ncols = ncols + 1
+    end do
+    allocate(column_labels(ncols))
+    pos = 1
+    do j = 1, ncols
+        call get_token(line, pos, column_labels(j))
+    end do
 
-!     ! Read the data into the matrix
-!     i = 1
-!     do
-!         read(10, '(A)', iostat=ios) line
-!         if (ios /= 0) exit
-!         pos = 1
-!         do j = 1, ncols
-!             call get_token(line, pos, token)
-!             read(token, *) temp_matrix(i, j)
-!         end do
-!         i = i + 1
-!     end do
+    ! Determine the number of rows
+    nrows = 0
+    do
+        read(10, '(A)', iostat=ios) line
+        if (ios /= 0) exit
+        nrows = nrows + 1
+    end do
 
-!     ! Close the file
-!     close(10)
+    ! Allocate the matrix
+    allocate(temp_matrix(nrows, ncols))
 
-!     ! Return the matrix and column labels
-!     matrix = temp_matrix
+    ! Rewind the file to the beginning and skip the first line (column labels)
+    rewind(10)
+    read(10, '(A)', iostat=ios) line
 
-!     contains
-!         subroutine get_token(line, pos, token)
-!             ! This subroutine extracts a token from a line starting at position pos
-!             character(len=*), intent(in) :: line
-!             integer, intent(inout) :: pos
-!             character(len=15), intent(out) :: token
-!             integer :: start, end
+    ! Read the data into the matrix
+    i = 1
+    do
+        read(10, '(A)', iostat=ios) line
+        if (ios /= 0) exit
+        pos = 1
+        do j = 1, ncols
+            call get_token(line, pos, token)
+            read(token, *) temp_matrix(i, j)
+        end do
+        i = i + 1
+    end do
 
-!             start = pos
-!             end = index(line(start:), ',') - 1
-!             if (end == -1) then
-!                 end = len_trim(line) - start + 1
-!             end if
-!             token = line(start:start+end-1)
-!             pos = start + end + 1
-!         end subroutine get_token
+    ! Close the file
+    close(10)
 
-! end subroutine read_matrix_with_labels
+    ! Return the matrix and column labels
+    matrix = temp_matrix
+
+    contains
+        subroutine get_token(line, pos, token)
+            ! This subroutine extracts a token from a line starting at position pos
+            character(len=*), intent(in) :: line
+            integer, intent(inout) :: pos
+            character(len=15), intent(out) :: token
+            integer :: start, end
+
+            start = pos
+            end = index(line(start:), ',') - 1
+            if (end == -1) then
+                end = len_trim(line) - start + 1
+            end if
+            token = line(start:start+end-1)
+            pos = start + end + 1
+        end subroutine get_token
+
+end subroutine read_matrix_with_labels
 
 
 
