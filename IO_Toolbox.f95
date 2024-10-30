@@ -18,18 +18,33 @@ module IO_Toolbox
 contains
 
 
-subroutine write_matrix(matrix, filename)
-    ! This subroutine writes a matrix to a CSV file
+subroutine write_matrix(matrix, filename, scientific)
+    ! This subroutine writes a matrix to a CSV file.
+
+    ! Input:
+    !   matrix: the matrix to write to the csv file
+    !   filename: the name of the csv file to write to
+    !   scientific: optional argument to specify whether to use scientific notation
+
     implicit none
 
     ! Declare the input arguments
     real(pv), intent(in) :: matrix(:,:)
     character(len=*), intent(in) :: filename
+    logical, intent(in), optional :: scientific
 
     ! Declare local variables
     integer :: i, j
     integer :: status
-    character(len=15) :: value
+    character(len=30) :: value
+    logical :: use_scientific
+
+    ! Determine if scientific notation should be used
+    if (present(scientific)) then
+        use_scientific = scientific
+    else
+        use_scientific = .false.
+    end if
 
     ! Open the file for writing
     open(unit=10, file=filename, status='replace', action='write', &
@@ -40,11 +55,15 @@ subroutine write_matrix(matrix, filename)
     end if
 
     ! Write the matrix to the file
-    print*, " " !Spacer
+    print*, " " ! Spacer
     write(*,"(A)") "Writing matrix to file ", filename
     do i = 1, size(matrix, 1)
         do j = 1, size(matrix, 2)
-            write(value, '(F15.5)') matrix(i,j)
+            if (use_scientific) then
+                write(value, '(E15.6)') matrix(i,j)
+            else
+                write(value, '(F15.6)') matrix(i,j)
+            end if
             if (j < size(matrix, 2)) then
                 write(10, '(A)', advance='no') trim(value) // ','
             else
@@ -57,9 +76,10 @@ subroutine write_matrix(matrix, filename)
     ! Close the file
     close(10)
     write(*,"(A)") "File write Complete."
-    print*, " " !Spacer
+    print*, " " ! Spacer
 
 end subroutine write_matrix
+
 
 
 
