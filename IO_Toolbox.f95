@@ -81,8 +81,6 @@ subroutine write_matrix(matrix, filename, scientific)
 end subroutine write_matrix
 
 
-
-
 subroutine read_matrix(matrix, filename)
     ! This subroutine reads a CSV file into a matrix
     implicit none
@@ -210,9 +208,6 @@ subroutine write_matrix_with_labels(matrix, filename, column_labels)
     ! Close the file
     close(10)
 end subroutine write_matrix_with_labels
-
-
-
 
 
 subroutine read_matrix_with_labels(matrix, filename, column_labels)

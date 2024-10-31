@@ -18,7 +18,7 @@ program main
     A(:,3) = 3.0_pv
 
 
-    call write_matrix_with_labels(A, 'test.csv', column_labels)
+    call write_matrix(A, 'test.csv', scientific = .true.)
 
 
 
