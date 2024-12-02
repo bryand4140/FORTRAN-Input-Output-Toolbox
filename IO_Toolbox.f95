@@ -15,8 +15,8 @@ module IO_Toolbox
 
 
 
-contains
 
+contains
 
 subroutine write_matrix(matrix, filename, scientific)
     ! This subroutine writes a matrix to a CSV file.
@@ -302,8 +302,6 @@ subroutine read_matrix_with_labels(matrix, filename, column_labels)
         end subroutine get_token
 
 end subroutine read_matrix_with_labels
-
-
 
 
 !-----------------------------------------------------------------------
