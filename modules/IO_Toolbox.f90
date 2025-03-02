@@ -347,7 +347,6 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
 end subroutine write_labeled_matrix
 
 
-
 subroutine read_labeled_matrix(matrix, column_labels, filename, path)
     ! Reads a labeled CSV file into a matrix.
     
