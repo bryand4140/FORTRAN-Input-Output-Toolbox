@@ -35,11 +35,10 @@ program main
     !Print the matrix that was read into B.
     call prm(B)
 
-    !Import the matrix from test2.csv
-    call read_labeled_matrix(B, labels, "test2.csv")
+    ! Import labeled matrix from test2.csv
+    call read_labeled_matrix(B, labels, "test2.csv")  ! NO NEED TO DEALLOCATE B OR LABELS
     print*, "Matrix successfully read from file:", trim(filename)
     print*, "Column Labels:", labels
-
     call prm(B)
 
 

@@ -246,7 +246,6 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     !   - For Windows, use double backslashes in the path name (e.g., 'C:\\Users\\username\\Desktop')
     !   - For WSL (Linux), use forward slashes (e.g., '/home/username/Desktop')
 
-    !-----------------------------------------------------------------------------------------------
     implicit none
 
     ! Declare input arguments
@@ -262,7 +261,6 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     character(len=30) :: value
     logical :: use_scientific, is_wsl
     character(len=256) :: full_path
-    integer, parameter :: w = 15  ! Column width
 
     ! Determine if scientific notation should be used
     if (present(scientific)) then
@@ -305,26 +303,25 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     end if
 
     ! Open the file for writing
-    open(unit=10, file=full_path, status='replace', action='write', &
-         form='formatted', iostat=status)
+    open(unit=10, file=full_path, status='replace', action='write', form='formatted', iostat=status)
     if (status /= 0) then
         print*, 'Error opening file ', trim(full_path)
         stop
     end if
 
-    ! Write a spacer and log the action to the console
-    print*, " " 
+    ! Log the action to the console
+    print*, " "
     write(*,"(A,A)") "Writing labeled matrix to file ", trim(full_path)
 
-    ! Write column labels with fixed width
+    ! Write column labels separated by commas (no extra spaces or fixed widths)
     do j = 1, num_columns
+        write(10, '(A)', advance='no') trim(column_labels(j))
         if (j < num_columns) then
-            write(10, '(A'//trim(adjustl(int2str(w)))//')', advance='no') trim(column_labels(j)) // ','
+            write(10, '(A)', advance='no') ','
         else
-            write(10, '(A'//trim(adjustl(int2str(w)))//')', advance='no') trim(column_labels(j))
+            write(10, *)  ! Newline after header
         end if
     end do
-    write(10, *)  ! Newline after headers
 
     ! Write the matrix data in CSV format
     do i = 1, size(matrix, 1)
@@ -335,12 +332,11 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
                 write(value, '(F15.6)') matrix(i,j)
             end if
             if (j < num_columns) then
-                write(10, '(A'//trim(adjustl(int2str(w)))//')', advance='no') trim(value) // ','
+                write(10, '(A)', advance='no') trim(value) // ','
             else
-                write(10, '(A'//trim(adjustl(int2str(w)))//')', advance='no') trim(value)
+                write(10, '(A)') trim(value)
             end if
         end do
-        write(10, *)  ! Newline
     end do
 
     ! Close the file and finish
@@ -348,31 +344,15 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     write(*,"(A)") "File write complete."
     print*, " "
 
-    contains
-        function int2str(n) result(str)
-            integer, intent(in) :: n
-            character(len=10) :: str
-            write(str, '(I10)') n
-        end function int2str
-
 end subroutine write_labeled_matrix
 
 
 subroutine read_labeled_matrix(matrix, column_labels, filename, path)
-    ! This subroutine reads a labeled CSV file into a matrix.
-    !
-    ! Input:
-    !   filename:       The name of the CSV file to read from.
-    !   path:           (optional) Directory path where the file is located.
-    !
-    ! Output:
-    !   matrix:         The matrix read from the CSV file (must be allocatable).
-    !   column_labels:  A character array containing the column labels.
-    !-------------------------------------------------------------------------------
-
+    ! Reads a labeled CSV file into a matrix.
+    
     implicit none
 
-    ! Declare input arguments
+    ! Input/Output arguments
     character(len=*), intent(in) :: filename
     real(pv), allocatable, intent(out) :: matrix(:,:)
     character(len=*), allocatable, intent(out) :: column_labels(:)
@@ -386,10 +366,10 @@ subroutine read_labeled_matrix(matrix, column_labels, filename, path)
     character(len=256) :: full_path
     character(len=1) :: separator
 
-    ! Determine path separator (default to Linux style)
+    ! Set path separator
     separator = '/'
 
-    ! Construct the full file path
+    ! Construct full file path
     if (present(path)) then
         if (path(len_trim(path):len_trim(path)) == separator) then
             full_path = trim(path) // trim(filename)
@@ -421,7 +401,8 @@ subroutine read_labeled_matrix(matrix, column_labels, filename, path)
         if (line(pos:pos) == ',') ncols = ncols + 1
     end do
 
-    ! Allocate the column labels array
+    ! Allocate column labels dynamically
+    if (allocated(column_labels)) deallocate(column_labels)
     allocate(column_labels(ncols))
 
     ! Extract column labels
@@ -430,44 +411,50 @@ subroutine read_labeled_matrix(matrix, column_labels, filename, path)
         call get_token(line, pos, column_labels(j))
     end do
 
-    ! Determine the number of rows (excluding the header)
+    ! Determine number of rows (excluding the header)
     nrows = 0
     do
         read(10, '(A)', iostat=ios) line
         if (ios /= 0) exit
+        if (len_trim(line) == 0) cycle  ! Skip empty lines
         nrows = nrows + 1
     end do
 
-    ! Allocate the matrix
-    allocate(temp_matrix(nrows, ncols))
+    ! Allocate the matrix dynamically
+    if (allocated(matrix)) deallocate(matrix)
+    allocate(matrix(nrows, ncols))
 
-    ! Rewind the file to start reading numeric data (skip header row)
+    ! Rewind to read numerical data (skip header)
     rewind(10)
-    read(10, *)  ! Skip header row
+    read(10, '(A)') line  ! Skip header row
+    
 
-    ! Read the data into the matrix
+    ! Read data into the matrix
     i = 1
     do
         read(10, '(A)', iostat=ios) line
         if (ios /= 0) exit
+        if (len_trim(line) == 0) cycle  ! Skip empty lines, if any
         pos = 1
         do j = 1, ncols
             call get_token(line, pos, token)
-            read(token, *) temp_matrix(i, j)
+            if (len_trim(token) == 0) then
+                print*, "Warning: empty token encountered at row", i, "column", j
+                matrix(i, j) = 0.0_pv  ! or choose an appropriate default value
+            else
+                read(token, *) matrix(i, j)
+            end if
         end do
         i = i + 1
     end do
+    
 
-    ! Close the file
+    ! Close file
     close(10)
-
-    ! Return the matrix
-    matrix = temp_matrix
 
     contains
 
     subroutine get_token(input_line, input_pos, output_token)
-        ! Extracts a token from a line starting at position input_pos
         character(len=*), intent(in) :: input_line
         integer, intent(inout) :: input_pos
         character(len=15), intent(out) :: output_token
@@ -483,6 +470,7 @@ subroutine read_labeled_matrix(matrix, column_labels, filename, path)
     end subroutine get_token
 
 end subroutine read_labeled_matrix
+
 
 
 !-----------------------------------------------------------------------
