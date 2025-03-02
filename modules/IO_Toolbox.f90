@@ -313,9 +313,9 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     print*, " "
     write(*,"(A,A)") "Writing labeled matrix to file ", trim(full_path)
 
-    ! Write column labels separated by commas (no extra spaces or fixed widths)
+    ! Write column labels in fixed-width fields (15 characters) so they line up above the data columns.
     do j = 1, num_columns
-        write(10, '(A)', advance='no') trim(column_labels(j))
+        write(10, '(A15)', advance='no') adjustl(trim(column_labels(j)))
         if (j < num_columns) then
             write(10, '(A)', advance='no') ','
         else
@@ -323,7 +323,7 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
         end if
     end do
 
-    ! Write the matrix data in CSV format
+    ! Write the matrix data in CSV format using the same field width
     do i = 1, size(matrix, 1)
         do j = 1, num_columns
             if (use_scientific) then
@@ -345,6 +345,7 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     print*, " "
 
 end subroutine write_labeled_matrix
+
 
 
 subroutine read_labeled_matrix(matrix, column_labels, filename, path)

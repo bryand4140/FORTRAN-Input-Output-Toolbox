@@ -8,7 +8,8 @@ program main
     character(len=15), dimension(3) :: column_labels
     character(len=20), allocatable :: labels(:)
     character(len = 100) :: filename
-
+    integer :: i
+    real(pv), allocatable :: DOM(:,:)
 
     print*, "I/O Toolbox Test"
 
@@ -25,7 +26,7 @@ program main
 
     !Test the function write_labeled_matrix
     filename = 'test2.csv'
-    column_labels = ['Col 1', 'Col 2', 'Col 3']
+    column_labels = ['eta  ', 'theta', 's_i  ']
 
     call write_labeled_matrix(A, column_labels, trim(filename), scientific = .true.)
 
@@ -41,6 +42,15 @@ program main
     print*, "Column Labels:", labels
     call prm(B)
 
+
+    allocate(DOM(40, 2))
+
+    do i = 1,size(DOM, DIM = 1)
+        DOM(i, 1) = real(i, kind = pv) 
+        DOM(i, 2) = sin(2.0 * real(i, kind = pv))
+    end do
+
+    call write_labeled_matrix(DOM, ['x      ', 'sin(2x)'], 'test3.csv', scientific = .true.)
 
 
 
