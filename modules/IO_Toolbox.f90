@@ -1,5 +1,5 @@
 module IO_Toolbox
-    use MOD_Select_Kind, only: pv
+    use MOD_Select_Precision, only: pv
     implicit none
 
     private !Set all subroutines to private by default
@@ -8,6 +8,21 @@ module IO_Toolbox
     public :: write_labeled_matrix
     public :: prv, piv, prm
     public :: read_labeled_matrix
+    public :: write_std_output
+
+    type, public :: std_output_file
+        character(len = :), allocatable :: filename
+        character(len = :), allocatable :: x_label
+        character(len = :), allocatable :: y_label
+        character(len = :), allocatable :: title
+        character(len = :), allocatable :: path
+        character(len = :), dimension(:), allocatable :: data_labels
+        real(pv), allocatable :: data(:,:)
+        logical :: grid_on
+        logical :: legend_on
+    end type std_output_file
+        
+
 
 
     !Input/Output Toolbox - Contains subroutines for reading and
@@ -16,36 +31,24 @@ module IO_Toolbox
 
 contains
 
-subroutine write_matrix(matrix, filename, path, scientific, use_wsl_path)
-    ! This subroutine writes a matrix to a CSV file.
-    !
-    ! Input:
-    !   matrix:       the matrix to write to the csv file
-    !   filename:     the name of the csv file to write to. Must have .csv extension. 
-    !   path:         optional argument specifying the directory path for the output file
-    !   scientific:   optional argument to specify whether to use scientific notation
-    !                 for the output values.
-    !   use_wsl_path: optional logical argument. If .true., the subroutine treats the
-    !                 provided path as a Linux/WSL path (using '/').
-    !
-    ! Note on Paths:
-    !   - For Windows, use double backslashes in the path name (e.g., 'C:\\Users\\username\\Desktop')
-    !   - For WSL (Linux), use forward slashes (e.g., '/home/username/Desktop')
-    
+subroutine write_matrix(matrix, filename, path, scientific)
+    ! Writes a matrix to a CSV file, auto-detecting path format.
+
     implicit none
 
-    ! Declare input arguments
-    real(pv), intent(in) :: matrix(:,:)
-    character(len=*), intent(in) :: filename
+    ! Input arguments
+    real(pv), intent(in)           :: matrix(:,:)
+    character(len=*), intent(in)   :: filename
     character(len=*), intent(in), optional :: path
-    logical, intent(in), optional :: scientific
-    logical, intent(in), optional :: use_wsl_path
+    logical,    intent(in), optional :: scientific
 
-    ! Declare local variables
-    integer :: i, j, status
-    character(len=30) :: value
-    logical :: use_scientific, is_wsl
-    character(len=256) :: full_path
+    ! Local variables
+    character(len=:), allocatable :: p
+    logical              :: is_wsl, use_scientific
+    character(len=1)     :: sep
+    character(len=256)   :: full_path
+    integer              :: unit, ios, i, j
+    character(len=30)    :: value
 
     ! Determine if scientific notation should be used
     if (present(scientific)) then
@@ -54,124 +57,110 @@ subroutine write_matrix(matrix, filename, path, scientific, use_wsl_path)
         use_scientific = .false.
     end if
 
-    ! Determine if WSL path should be used
-    if (present(use_wsl_path)) then
-        is_wsl = use_wsl_path
-    else
-        is_wsl = .false.
-    end if
-
-    ! Construct the full path
+    ! Build full path with OS-specific separator
     if (present(path)) then
+        p = trim(path)
+        is_wsl = detect_wsl_path(p)
         if (is_wsl) then
-            ! WSL/Linux uses '/'
-            if (path(len_trim(path):len_trim(path)) == '/') then
-                full_path = trim(path) // trim(filename)
-            else
-                full_path = trim(path) // '/' // trim(filename)
-            end if
+            sep = '/'
         else
-            ! Windows: use backslash
-            if (path(len_trim(path):len_trim(path)) == '\\') then
-                full_path = trim(path) // trim(filename)
-            else
-                full_path = trim(path) // '\\' // trim(filename)
-            end if
+            sep = '\'
+        end if
+        if (p(len_trim(p):len_trim(p)) == sep) then
+            full_path = p // trim(filename)
+        else
+            full_path = p // sep // trim(filename)
         end if
     else
         full_path = trim(filename)
     end if
 
-    ! Open the file for writing
-    open(unit=10, file=full_path, status='replace', action='write', &
-         form='formatted', iostat=status)
-    if (status /= 0) then
+    ! Open file for writing
+    open(newunit=unit, file=full_path, status='replace', action='write', &
+         form='formatted', iostat=ios)
+    if (ios /= 0) then
         print*, 'Error opening file ', trim(full_path)
         stop
     end if
 
-    ! Write a spacer and log the action to the console
-    print*, " " 
-    write(*,"(A,A)") "Writing matrix to file ", trim(full_path)
-    
-    ! Write the matrix to the file in CSV format
-    do i = 1, size(matrix, 1)
-        do j = 1, size(matrix, 2)
+    ! Log to console
+    print*, ' '
+    write(*,'(A,A)') 'Writing matrix to file ', trim(full_path)
+
+    ! Write matrix rows in CSV format
+    do i = 1, size(matrix,1)
+        do j = 1, size(matrix,2)
             if (use_scientific) then
-                write(value, '(E15.6)') matrix(i,j)
+                write(value,'(E15.6)') matrix(i,j)
             else
-                write(value, '(F15.6)') matrix(i,j)
+                write(value,'(F15.6)') matrix(i,j)
             end if
-            if (j < size(matrix, 2)) then
-                write(10, '(A)', advance='no') trim(value) // ','
+            if (j < size(matrix,2)) then
+                write(unit,'(A)',advance='no') trim(value)//','
             else
-                write(10, '(A)', advance='no') trim(value)
+                write(unit,'(A)')          trim(value)
             end if
         end do
-        write(10, *)
     end do
 
-    ! Close the file and finish
-    close(10)
-    write(*,"(A)") "File write Complete."
-    print*, " "
+    close(unit)
+    write(*,'(A)') 'File write complete.'
+    print*, ' '
 
 end subroutine write_matrix
 
 
 subroutine read_matrix(matrix, filename, path)
-    ! This subroutine reads a CSV file into a matrix.
-    !
-    ! Input:
-    !   filename: the name of the CSV file to read from. Must have .csv extension.
-    !   path:     (optional) directory path where the file is located.
-    !
-    ! Output:
-    !   matrix: the matrix read from the CSV file (must be allocatable).
-    !-------------------------------------------------------------------------------
+    ! Reads a CSV file into a matrix, auto-detecting path format.
 
     implicit none
 
-    ! Declare the input arguments
-    character(len=*), intent(in) :: filename
-    real(pv), allocatable, intent(out) :: matrix(:,:)
+    ! Input/Output arguments
+    character(len=*), intent(in)          :: filename
+    real(pv), allocatable, intent(out)    :: matrix(:,:)
     character(len=*), intent(in), optional :: path
 
-    ! Declare local variables
-    integer :: i, j, ios, nrows, ncols, pos
-    character(len=1000) :: line
-    character(len=15) :: token
-    real, allocatable :: temp_matrix(:,:)
-    character(len=256) :: full_path
-    character(len=1) :: separator
+    ! Local variables
+    character(len=:), allocatable :: p
+    logical              :: is_wsl
+    character(len=1)     :: sep
+    character(len=256)   :: full_path
+    integer              :: unit, ios, nrows, ncols, i, j, pos
+    character(len=1000)  :: line
+    character(len=15)    :: token
+    real(pv), allocatable :: temp_matrix(:,:)
 
-    ! Determine path separator based on OS
-    separator = '/'
-    
-    ! Construct the full file path
+    ! Build full path with OS-specific separator
     if (present(path)) then
-        if (path(len_trim(path):len_trim(path)) == separator) then
-            full_path = trim(path) // trim(filename)
+        p = trim(path)
+        is_wsl = detect_wsl_path(p)
+        if (is_wsl) then
+            sep = '/'
         else
-            full_path = trim(path) // separator // trim(filename)
+            sep = '\'
+        end if
+        if (p(len_trim(p):len_trim(p)) == sep) then
+            full_path = p // trim(filename)
+        else
+            full_path = p // sep // trim(filename)
         end if
     else
         full_path = trim(filename)
     end if
 
     ! Open the file for reading
-    open(unit=10, file=full_path, status='old', action='read', &
+    open(newunit=unit, file=full_path, status='old', action='read', &
          form='formatted', iostat=ios)
     if (ios /= 0) then
         print*, 'Error: Could not open file ', trim(full_path)
         stop
     end if
 
-    ! Determine the number of rows and columns
+    ! Determine number of rows and columns
     nrows = 0
     ncols = 0
     do
-        read(10, '(A)', iostat=ios) line
+        read(unit, '(A)', iostat=ios) line
         if (ios /= 0) exit
         if (nrows == 0) then
             ncols = 1
@@ -182,16 +171,16 @@ subroutine read_matrix(matrix, filename, path)
         nrows = nrows + 1
     end do
 
-    ! Allocate the matrix
+    ! Allocate matrix
     allocate(temp_matrix(nrows, ncols))
 
-    ! Rewind the file to the beginning
-    rewind(10)
+    ! Rewind to beginning
+    rewind(unit)
 
-    ! Read the data into the matrix
+    ! Read data into matrix
     i = 1
     do
-        read(10, '(A)', iostat=ios) line
+        read(unit, '(A)', iostat=ios) line
         if (ios /= 0) exit
         pos = 1
         do j = 1, ncols
@@ -201,66 +190,45 @@ subroutine read_matrix(matrix, filename, path)
         i = i + 1
     end do
 
-    ! Close the file
-    close(10)
-
-    ! Return the matrix
+    close(unit)
     matrix = temp_matrix
 
     contains
 
     subroutine get_token(input_line, input_pos, output_token)
-        ! This subroutine extracts a token from a line starting at position pos
         character(len=*), intent(in) :: input_line
-        integer, intent(inout) :: input_pos
-        character(len=15), intent(out) :: output_token
-        integer :: start, end
+        integer, intent(inout)       :: input_pos
+        character(len=15), intent(out):: output_token
+        integer                     :: start, lenend
 
         start = input_pos
-        end = index(input_line(start:), ',') - 1
-        if (end == -1) then
-            end = len_trim(input_line) - start + 1
-        end if
-        output_token = input_line(start:start+end-1)
-        input_pos = start + end + 1
+        lenend = index(input_line(start:), ',') - 1
+        if (lenend < 0) lenend = len_trim(input_line) - start + 1
+        output_token = input_line(start:start+lenend-1)
+        input_pos = start + lenend + 1
     end subroutine get_token
 
 end subroutine read_matrix
 
 
-subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientific, use_wsl_path)
-    ! General Description: This subroutine writes a matrix to a CSV file with column labels.
-    !
-    ! Input:
-    !   matrix:         the matrix to write to the csv file
-    !   column_labels:  an array of strings containing the labels for each column
-    !   filename:       the name of the csv file to write to. Must have .csv extension.
-    !Optional Inputs:
-    !   path:           optional argument specifying the directory path for the output file
-    !   scientific:     optional argument to specify whether to use scientific notation
-    !                   for the output values.
-    !   use_wsl_path:   optional logical argument. If .true., the subroutine treats the
-    !                   provided path as a Linux/WSL path (using '/').
-    !
-    ! Note on Paths:
-    !   - For Windows, use double backslashes in the path name (e.g., 'C:\\Users\\username\\Desktop')
-    !   - For WSL (Linux), use forward slashes (e.g., '/home/username/Desktop')
+subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientific)
+    ! General Description: Writes a matrix with column labels to a CSV file.
 
     implicit none
 
-    ! Declare input arguments
-    real(pv), intent(in) :: matrix(:,:)
-    character(len=*), intent(in) :: filename
-    character(len=*), intent(in) :: column_labels(:)
+    ! Input arguments
+    real(pv), intent(in)           :: matrix(:,:)
+    character(len=*), intent(in)   :: filename
+    character(len=*), intent(in)   :: column_labels(:)
     character(len=*), intent(in), optional :: path
-    logical, intent(in), optional :: scientific
-    logical, intent(in), optional :: use_wsl_path
+    logical,    intent(in), optional :: scientific
 
-    ! Declare local variables
-    integer :: i, j, status, num_columns
-    character(len=30) :: value
-    logical :: use_scientific, is_wsl
-    character(len=256) :: full_path
+    ! Local variables
+    integer              :: i, j, status, num_columns
+    character(len=30)    :: value
+    logical              :: use_scientific, is_wsl
+    character(len=256)   :: full_path
+    character(len=:), allocatable :: p
 
     ! Determine if scientific notation should be used
     if (present(scientific)) then
@@ -269,87 +237,95 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
         use_scientific = .false.
     end if
 
-    ! Determine if WSL path should be used
-    if (present(use_wsl_path)) then
-        is_wsl = use_wsl_path
-    else
-        is_wsl = .false.
-    end if
-
-    ! Construct the full path
+    ! Construct the full path and detect format
     if (present(path)) then
+        p = trim(path)
+        is_wsl = detect_wsl_path(p)
         if (is_wsl) then
-            if (path(len_trim(path):len_trim(path)) == '/') then
-                full_path = trim(path) // trim(filename)
+            ! Linux/WSL: use '/'
+            if (p(len_trim(p):len_trim(p)) == '/') then
+                full_path = p // trim(filename)
             else
-                full_path = trim(path) // '/' // trim(filename)
+                full_path = p // '/' // trim(filename)
             end if
         else
-            if (path(len_trim(path):len_trim(path)) == '\\') then
-                full_path = trim(path) // trim(filename)
+            ! Windows: use '\'
+            if (p(len_trim(p):len_trim(p)) == '\\') then
+                full_path = p // trim(filename)
             else
-                full_path = trim(path) // '\\' // trim(filename)
+                full_path = p // '\\' // trim(filename)
             end if
         end if
     else
         full_path = trim(filename)
     end if
 
-    ! Ensure the number of labels matches the number of matrix columns
+    ! Check labels length
     num_columns = size(matrix, 2)
     if (size(column_labels) /= num_columns) then
-        print*, 'Error: Number of column labels does not match the number of columns in the matrix.'
+        print*, " " !Spacer
+        print*, '-----------------------------------------------------------------------'
+        print*, 'Error in IO_Toolbox --> write_labeled_matrix(): '
+        print*, 'Number of column labels does not match number of matrix columns.'
+        print*, ' >>> Number of columns in matrix: ', num_columns
+        print*, ' >>> Number of column labels: ', size(column_labels)
+        print*, '-----------------------------------------------------------------------'
+        print*, " " !Spacer
         stop
     end if
 
-    ! Open the file for writing
+    ! Open file for writing
     open(unit=10, file=full_path, status='replace', action='write', form='formatted', iostat=status)
     if (status /= 0) then
-        print*, 'Error opening file ', trim(full_path)
+        print*, " " !Spacer
+        print*, '-----------------------------------------------------------------------'
+        print*, 'Error in IO_Toolbox --> write_labeled_matrix(): '
+        print*, ' >>> Error opening file ', trim(full_path)
+        print*, '-----------------------------------------------------------------------'
+        print*, " " !Spacer
         stop
     end if
 
-    ! Log the action to the console
-    print*, " "
-    write(*,"(A,A)") "Writing labeled matrix to file ", trim(full_path)
+    ! Log
+    print*, ' ' !Spacer
+    write(*,'(A,A)') 'Writing labeled matrix to file ', trim(full_path)
 
-    ! Write column labels in fixed-width fields (15 characters) so they line up above the data columns.
+    ! Write header labels
     do j = 1, num_columns
         write(10, '(A15)', advance='no') adjustl(trim(column_labels(j)))
         if (j < num_columns) then
             write(10, '(A)', advance='no') ','
         else
-            write(10, *)  ! Newline after header
+            write(10, *)
         end if
     end do
 
-    ! Write the matrix data in CSV format using the same field width
+    ! Write matrix rows
     do i = 1, size(matrix, 1)
         do j = 1, num_columns
             if (use_scientific) then
-                write(value, '(E15.6)') matrix(i,j)
+                write(value, '(E15.6)') matrix(i, j)
             else
-                write(value, '(F15.6)') matrix(i,j)
+                write(value, '(F15.6)') matrix(i, j)
             end if
             if (j < num_columns) then
-                write(10, '(A)', advance='no') trim(value) // ','
+                write(10, '(A)', advance='no') trim(value)//','
             else
                 write(10, '(A)') trim(value)
             end if
         end do
     end do
 
-    ! Close the file and finish
     close(10)
-    write(*,"(A)") "File write complete."
-    print*, " "
+    write(*,'(A)') 'File write complete.'
+    print*, ' '
 
 end subroutine write_labeled_matrix
 
 
 subroutine read_labeled_matrix(matrix, column_labels, filename, path)
-    ! Reads a labeled CSV file into a matrix.
-    
+    ! Reads a labeled CSV file into a matrix, auto-detecting path format.
+
     implicit none
 
     ! Input/Output arguments
@@ -359,98 +335,98 @@ subroutine read_labeled_matrix(matrix, column_labels, filename, path)
     character(len=*), intent(in), optional :: path
 
     ! Local variables
-    integer :: i, j, ios, nrows, ncols, pos
+    character(len=:), allocatable :: p
+    logical :: is_wsl
+    character(len=1) :: sep
+    character(len=256) :: full_path
+    integer :: unit, ios, i, j, nrows, ncols, pos
     character(len=1000) :: line
     character(len=15) :: token
-    real, allocatable :: temp_matrix(:,:)
-    character(len=256) :: full_path
-    character(len=1) :: separator
+    real(pv), allocatable :: temp_matrix(:,:)
 
-    ! Set path separator
-    separator = '/'
-
-    ! Construct full file path
+    ! Construct full file path with proper separator
     if (present(path)) then
-        if (path(len_trim(path):len_trim(path)) == separator) then
-            full_path = trim(path) // trim(filename)
+        p = trim(path)
+        is_wsl = detect_wsl_path(p)
+        if (is_wsl) then
+            sep = '/'
         else
-            full_path = trim(path) // separator // trim(filename)
+            sep = '\\'
+        end if
+        if (p(len_trim(p):len_trim(p)) == sep) then
+            full_path = p // trim(filename)
+        else
+            full_path = p // sep // trim(filename)
         end if
     else
         full_path = trim(filename)
     end if
 
     ! Open the file for reading
-    open(unit=10, file=full_path, status='old', action='read', &
+    open(newunit=unit, file=full_path, status='old', action='read', &
          form='formatted', iostat=ios)
     if (ios /= 0) then
         print*, 'Error: Could not open file ', trim(full_path)
         stop
     end if
 
-    ! Read the first line to get column labels
-    read(10, '(A)', iostat=ios) line
+    ! Read header line for column labels
+    read(unit, '(A)', iostat=ios) line
     if (ios /= 0) then
         print*, 'Error: Failed to read column labels from file.'
         stop
     end if
 
-    ! Determine the number of columns
+    ! Determine number of columns from header
     ncols = 1
     do pos = 1, len_trim(line)
         if (line(pos:pos) == ',') ncols = ncols + 1
     end do
 
-    ! Allocate column labels dynamically
-    if (allocated(column_labels)) deallocate(column_labels)
+    ! Allocate and extract column labels
     allocate(column_labels(ncols))
-
-    ! Extract column labels
     pos = 1
     do j = 1, ncols
         call get_token(line, pos, column_labels(j))
     end do
 
-    ! Determine number of rows (excluding the header)
+    ! Remove non-printable characters from the first label (fix BOM issue)
+    column_labels(1) = adjustl(strip_nonprintable(column_labels(1)))
+
+    ! Count data rows (excluding header)
     nrows = 0
     do
-        read(10, '(A)', iostat=ios) line
+        read(unit, '(A)', iostat=ios) line
         if (ios /= 0) exit
-        if (len_trim(line) == 0) cycle  ! Skip empty lines
+        if (len_trim(line) == 0) cycle
         nrows = nrows + 1
     end do
 
-    ! Allocate the matrix dynamically
-    if (allocated(matrix)) deallocate(matrix)
-    allocate(matrix(nrows, ncols))
+    ! Allocate temporary matrix and rewind to data
+    allocate(temp_matrix(nrows, ncols))
+    rewind(unit)
+    read(unit, '(A)') line  ! skip header
 
-    ! Rewind to read numerical data (skip header)
-    rewind(10)
-    read(10, '(A)') line  ! Skip header row
-    
-
-    ! Read data into the matrix
+    ! Read data into matrix
     i = 1
     do
-        read(10, '(A)', iostat=ios) line
+        read(unit, '(A)', iostat=ios) line
         if (ios /= 0) exit
-        if (len_trim(line) == 0) cycle  ! Skip empty lines, if any
+        if (len_trim(line) == 0) cycle
         pos = 1
         do j = 1, ncols
             call get_token(line, pos, token)
             if (len_trim(token) == 0) then
-                print*, "Warning: empty token encountered at row", i, "column", j
-                matrix(i, j) = 0.0_pv  ! or choose an appropriate default value
+                temp_matrix(i, j) = 0.0_pv
             else
-                read(token, *) matrix(i, j)
+                read(token, *) temp_matrix(i, j)
             end if
         end do
         i = i + 1
     end do
-    
 
-    ! Close file
-    close(10)
+    close(unit)
+    matrix = temp_matrix
 
     contains
 
@@ -458,23 +434,199 @@ subroutine read_labeled_matrix(matrix, column_labels, filename, path)
         character(len=*), intent(in) :: input_line
         integer, intent(inout) :: input_pos
         character(len=15), intent(out) :: output_token
-        integer :: start, end
+        integer :: start, lenend
 
         start = input_pos
-        end = index(input_line(start:), ',') - 1
-        if (end == -1) then
-            end = len_trim(input_line) - start + 1
-        end if
-        output_token = input_line(start:start+end-1)
-        input_pos = start + end + 1
+        lenend = index(input_line(start:), ',') - 1
+        if (lenend < 0) lenend = len_trim(input_line) - start + 1
+        output_token = input_line(start:start+lenend-1)
+        input_pos = start + lenend + 1
     end subroutine get_token
 
 end subroutine read_labeled_matrix
 
 
+function detect_wsl_path(path_string) result(is_wsl)
+    implicit none
+    character(len=*), intent(in) :: path_string
+    logical :: is_wsl
+    
+    is_wsl = .false.
+    
+    ! Check if path contains forward slashes (typical in WSL/Linux paths)
+    if (index(path_string, '/') > 0) then
+        is_wsl = .true.
+        return
+    end if
+    
+    ! Check for absolute Linux paths
+    if (len_trim(path_string) >= 1) then
+        if (path_string(1:1) == '/') then
+            is_wsl = .true.
+            return
+        endif
+    endif
+    
+    ! Check for common WSL mount points
+    if (len_trim(path_string) >= 5) then
+        if (path_string(1:5) == '/mnt/') then
+            is_wsl = .true.
+            return
+        endif
+    endif
+    
+    ! Check for Linux home directories
+    if (len_trim(path_string) >= 6) then
+        if (path_string(1:6) == '/home/') then
+            is_wsl = .true.
+            return
+        endif
+    endif
+    
+    ! If we're actually running in WSL and we have a Windows path, set to true
+    if (system_is_wsl() .and. len_trim(path_string) >= 2) then
+        if (path_string(2:2) == ':') then
+            ! This is a Windows path being used in WSL, so we should treat it as a WSL path
+            ! that needs conversion
+            is_wsl = .true.
+            return
+        endif
+    endif
+end function detect_wsl_path
+
+
+function system_is_wsl() result(is_wsl)
+    implicit none
+    logical :: is_wsl
+    integer :: unit_num, ios
+    character(256) :: line
+    
+    is_wsl = .false.
+    
+    ! Try to read /proc/version to check for WSL
+    open(newunit=unit_num, file="/proc/version", status="old", action="read", iostat=ios)
+    if (ios == 0) then
+        read(unit_num, '(A)', iostat=ios) line
+        close(unit_num)
+        
+        ! Check if the version contains "Microsoft" or "WSL"
+        if (index(line, "Microsoft") > 0 .or. index(line, "WSL") > 0) then
+            is_wsl = .true.
+        endif
+    endif
+end function system_is_wsl
+
+
+function strip_nonprintable(str) result(clean)
+    character(len=*), intent(in) :: str
+    character(len=len(str)) :: clean
+    integer :: i, j
+    j = 1
+    do i = 1, len_trim(str)
+        if (iachar(str(i:i)) >= 32 .and. iachar(str(i:i)) <= 126) then
+            clean(j:j) = str(i:i)
+            j = j + 1
+        end if
+    end do
+    if (j <= len(clean)) clean(j:) = ' '
+end function strip_nonprintable
+
+
+subroutine write_std_output(S)
+    implicit none
+    type(std_output_file), intent(in) :: S
+
+    integer           :: unit, ios, i, j
+    integer           :: nrow, ncol
+    logical           :: is_wsl
+    character(len=256):: full_path
+    character(len=512):: line
+    character(len=30) :: tmp
+
+    !— determine separator and build full_path
+    is_wsl = detect_wsl_path(trim(S%path))
+    if (len_trim(S%path) > 0) then
+      if (is_wsl) then
+        if ( S%path(len_trim(S%path):len_trim(S%path)) == '/' ) then
+          full_path = trim(S%path)//trim(S%filename)
+        else
+          full_path = trim(S%path)//'/'//trim(S%filename)
+        end if
+      else
+        if ( S%path(len_trim(S%path):len_trim(S%path)) == '\' ) then
+          full_path = trim(S%path)//trim(S%filename)
+        else
+          full_path = trim(S%path)//'\'//'\'//trim(S%filename)
+        end if
+      end if
+    else
+      full_path = trim(S%filename)
+    end if
+
+    !— open file
+    open(newunit=unit, file=full_path, status='replace', action='write', form='formatted', iostat=ios)
+    if (ios /= 0) then
+      print*, 'Error opening ', full_path
+      stop
+    end if
+
+    !— write metadata as comment lines
+    write(unit,'(A)') '# Title: '   // trim(S%title)
+    write(unit,'(A)') '# X-Label: ' // trim(S%x_label)
+    write(unit,'(A)') '# Y-Label: ' // trim(S%y_label)
+
+    ! data_labels
+    line = '# DataLabels:'
+    do j = 1, size(S%data_labels)
+      line = trim(line)//' '//adjustl(trim(S%data_labels(j)))
+      if (j < size(S%data_labels)) line = trim(line)//','
+    end do
+    write(unit,'(A)') trim(line)
+
+    ! grid_on / legend_on
+    if (S%grid_on) then
+        write(unit, '(A)') '# GridOn: true'
+    else
+        write(unit, '(A)') '# GridOn: false'
+    end if
+
+    if (S%legend_on) then
+        write(unit, '(A)') '# LegendOn: true'
+    else
+        write(unit, '(A)') '# LegendOn: false'
+    end if
+
+    !Put a blank line in between the metadata and the data
+    write(unit,'(A)') ' '
+
+    !— write a plain header line with just the column labels
+    ncol = size(S%data,2)
+    line = ''
+    do j = 1, ncol
+      line = trim(line)//trim(S%data_labels(j))
+      if (j < ncol) line = trim(line)//','
+    end do
+    write(unit,'(A)') trim(line)
+
+    !— write the data block
+    nrow = size(S%data,1)
+    do i = 1, nrow
+      do j = 1, ncol
+        write(tmp,'(ES15.6)') S%data(i,j)
+        if (j < ncol) then
+          write(unit,'(A)',advance='no') trim(tmp)//','
+        else
+          write(unit,'(A)') trim(tmp)
+        end if
+      end do
+    end do
+
+    close(unit)
+    print*, 'Std‑output file written to ', full_path
+  end subroutine write_std_output
 
 !-----------------------------------------------------------------------
-! Printing Tools
+! Printing Tools - used for testing purposes.
 
 SUBROUTINE prv(A)
     ! This subroutine prints a one-dimensional array of real numbers
