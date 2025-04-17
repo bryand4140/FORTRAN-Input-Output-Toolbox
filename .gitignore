@@ -30,3 +30,6 @@
 *.exe
 *.out
 *.app
+
+# Ignore .vscode folder and all its contents
+.vscode/
