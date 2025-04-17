@@ -32,7 +32,7 @@ module IO_Toolbox
 contains
 
 subroutine write_matrix(matrix, filename, path, scientific)
-    ! Writes a matrix to a CSV file, auto-detecting path format.
+    ! Writes a matrix to a data file. Auto-detects the path format.
 
     implicit none
 
