@@ -21,9 +21,6 @@ module IO_Toolbox
         logical :: grid_on
         logical :: legend_on
     end type std_output_file
-        
-
-
 
     !Input/Output Toolbox - Contains subroutines for reading and
     !writing matrices to CSV files and printing vectors and matrices.
@@ -355,15 +352,15 @@ subroutine read_matrix(matrix, filename, status, path, num_head_rows, column_lab
 
     contains
 
-    subroutine get_token(input_line, input_pos, output_token, delim)
+    subroutine get_token(input_line, input_pos, output_token, delim_local)
         character(len=*), intent(in) :: input_line
         integer, intent(inout) :: input_pos
         character(len=*), intent(out) :: output_token
-        character(len=1), intent(in) :: delim
+        character(len=1), intent(in) :: delim_local
         integer :: start, end
 
         start = input_pos
-        end = index(input_line(start:), delim) - 1
+        end = index(input_line(start:), delim_local) - 1
         if (end == -1) then
             end = len_trim(input_line) - start + 1
         end if
