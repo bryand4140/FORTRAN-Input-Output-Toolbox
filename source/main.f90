@@ -11,6 +11,7 @@ program main
     integer :: i
     real(pv), allocatable :: DOM(:,:)
     character(len = 250) :: path
+    integer :: status
 
     ! Derived type for standard output derived type (SODT) example variables
     type(std_output_file) :: SODT 
@@ -36,11 +37,15 @@ program main
     call write_labeled_matrix(A, column_labels, filename, path = path, scientific = .true.)
 
     ! Read matrix back into B
-    call read_matrix(B, 'test.csv', path = path)
-    call prm(B)
+    call read_matrix(B, 'test.csv', status, path = path)
+    if (status /= 0) then
+        print *, "Error reading matrix from file, status =", status
+    else
+        call prm(B)
+    end if
 
     ! Import labeled matrix from test2.csv
-    call read_labeled_matrix(B, labels, 'test2.csv', path = path)
+    call read_matrix(B, 'test2.csv', status, path=path, num_head_rows=1, column_labels=labels)
     print*, "Matrix successfully read from file: ", trim(filename)
     print*, "Column Labels:", labels
     call prm(B)

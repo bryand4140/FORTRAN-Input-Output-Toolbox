@@ -1,6 +1,11 @@
 # Compiler and flags
 FC = gfortran
-FFLAGS = -w -O2 -march=native -fcheck=all -std=f2008 -J$(BUILD_DIR)
+
+# FFLAGS for dubuging and code development
+FFLAGS = -Wall -g -O1 -fcheck=all -march=native -std=f2008 -J$(BUILD_DIR)
+
+## FFLAGS for regular use
+#FFLAGS = -w -O3 -march=native -fcheck=all -std=f2008 -J$(BUILD_DIR)
 
 # Directories
 SRC_DIR = source

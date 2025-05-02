@@ -4,10 +4,10 @@ module IO_Toolbox
 
     private !Set all subroutines to private by default
 
-    public :: write_matrix, read_matrix
+    public :: write_matrix
     public :: write_labeled_matrix
     public :: prv, piv, prm
-    public :: read_labeled_matrix
+    public :: read_matrix
     public :: write_std_output
 
     type, public :: std_output_file
@@ -110,102 +110,266 @@ subroutine write_matrix(matrix, filename, path, scientific)
 end subroutine write_matrix
 
 
-subroutine read_matrix(matrix, filename, path)
-    ! Reads a CSV file into a matrix, auto-detecting path format.
-
+subroutine read_matrix(matrix, filename, status, path, num_head_rows, column_labels, delimiter)
+    !---------------------------------------------------------------------------|
+    ! Subroutine: Reads a data file into a 2D matrix, skipping a specified 
+    !             number of header rows. Compatible with both Unix and Windows 
+    !             file paths.The default delimiter is a comma (',').
+    !
+    ! Description:
+    ! This subroutine processes a text file containing numerical data, ignoring 
+    ! a given number of header lines, and stores the remaining data into a 
+    ! two-dimensional matrix. It is designed to handle file paths from different 
+    ! operating systems seamlessly.
+    !
+    ! Input:
+    !   filename      - (Character, Intent(In)) The name of the data file to read.
+    !
+    ! Optional Inputs:
+    !   path          - (Character, Intent(In), Optional) Directory path.
+    !   num_head_rows - (Integer, Intent(In),   Optional) Number of header rows to skip.
+    !   delimiter     - (Character, Intent(In), Optional) Delimiter character (default: ',').
+    !
+    ! Output:
+    !   matrix        - (Real, Allocatable, Intent(Out)) 2D array of data.
+    !   status        - (Integer, Optional) with the followin status flag options:
+    !                   >> 0 = file read successfully
+    !                   >> 1 - file does not exist
+    !                   >> 2 - file is already opened
+    !                   >> 3 - failed to read header rows
+    !                   >> 4 - failed to read first data row
+    !
+    ! Optional Outputs:
+    !   column_labels - (Character, Allocatable, Intent(Out), Optional) Column labels.
+    !   status        - (Integer, Intent(Out), Optional) Status flag: 0=success, nonzero=error.
+    !---------------------------------------------------------------------------|
     implicit none
 
     ! Input/Output arguments
-    character(len=*), intent(in)          :: filename
-    real(pv), allocatable, intent(out)    :: matrix(:,:)
+    character(len=*), intent(in) :: filename
+    real(pv), allocatable, intent(out) :: matrix(:,:)
     character(len=*), intent(in), optional :: path
+    integer, intent(in), optional :: num_head_rows
+    character(len=*), allocatable, intent(out), optional :: column_labels(:)
+    integer, intent(out) :: status
+    character(len=*), intent(in), optional :: delimiter
 
     ! Local variables
-    character(len=:), allocatable :: p
-    logical              :: is_wsl
-    character(len=1)     :: sep
-    character(len=256)   :: full_path
-    integer              :: unit, ios, nrows, ncols, i, j, pos
-    character(len=1000)  :: line
-    character(len=15)    :: token
-    real(pv), allocatable :: temp_matrix(:,:)
+    integer :: i, j, ios, nrows, ncols, pos, skip_rows
+    character(len=1000) :: line
+    character(len=15) :: token
+    character(len=256) :: full_path
+    character(len=1) :: separator_unix, separator_win
+    character(len=1) :: delim
+    character(len=:), allocatable :: header_line
+    logical :: is_windows, path_has_trailing_separator
+    logical :: file_exists
+    logical :: is_opened
+    integer :: file_unit
 
-    ! Build full path with OS-specific separator
+    ! Initialize status
+    status = -1
+
+    ! Set default number of header rows to skip
+    skip_rows = 0
+    if (present(num_head_rows)) skip_rows = num_head_rows
+
+    ! Set delimiter
+    if (present(delimiter)) then
+        delim = delimiter(1:1)
+    else
+        delim = ','
+    end if
+
+    ! Set path separators
+    separator_unix = '/'
+    separator_win = '\'
+
+    ! Determine if we're on Windows by checking for environment variable
+    is_windows = .false.
+    call get_environment_variable("OS", line, status=ios)
+    if (ios == 0) then
+        if (index(line, "Windows") > 0) is_windows = .true.
+    end if
+
+    ! Construct full file path with proper handling for both OS types
     if (present(path)) then
-        p = trim(path)
-        is_wsl = detect_wsl_path(p)
-        if (is_wsl) then
-            sep = '/'
-        else
-            sep = '\'
+        path_has_trailing_separator = .false.
+        if (len_trim(path) > 0) then
+            if (path(len_trim(path):len_trim(path)) == separator_unix .or. &
+                path(len_trim(path):len_trim(path)) == separator_win) then
+                path_has_trailing_separator = .true.
+            end if
         end if
-        if (p(len_trim(p):len_trim(p)) == sep) then
-            full_path = p // trim(filename)
+        if (path_has_trailing_separator) then
+            full_path = trim(path) // trim(filename)
         else
-            full_path = p // sep // trim(filename)
+            if (is_windows) then
+                full_path = trim(path) // separator_win // trim(filename)
+            else
+                full_path = trim(path) // separator_unix // trim(filename)
+            end if
         end if
     else
         full_path = trim(filename)
     end if
 
-    ! Open the file for reading
-    open(newunit=unit, file=full_path, status='old', action='read', &
-         form='formatted', iostat=ios)
-    if (ios /= 0) then
-        print*, 'Error: Could not open file ', trim(full_path)
-        stop
+    ! Check if file exists and if it is already opened
+    inquire(file=full_path, exist=file_exists)
+    if (.not. file_exists) then
+        print *, 'Error: File does not exist - ', trim(full_path)
+        status = 1
+        return
     end if
 
-    ! Determine number of rows and columns
+    inquire(file=full_path, opened=is_opened)
+    if (is_opened) then
+        print *, 'Warning: File is already opened.'
+        ! Proceeding anyway
+    end if
+
+    ! Open the file for reading
+    open(newunit=file_unit, file=full_path, status='old', action='read', &
+         form='formatted', iostat=ios)
+    if (ios /= 0) then
+        status = 2
+        print*, 'Error: Could not open file ', trim(full_path)
+        return
+    end if
+
+    ! If column labels are requested and there's at least one header row
+    if (present(column_labels) .and. skip_rows >= 1) then
+        do i = 1, skip_rows
+            read(file_unit, '(A)', iostat=ios) line
+            if (ios /= 0) then
+                status = 3
+                print*, 'Error: Failed to read header rows from file.'
+                close(file_unit)
+                return
+            end if
+            ! Skip comment lines in header
+            if (len_trim(line) > 0) then
+                if (line(1:1) == '#' .or. line(1:1) == '!') cycle
+            end if
+            if (i == skip_rows) header_line = trim(line)
+        end do
+
+        ! Determine the number of columns
+        ncols = 1
+        do pos = 1, len_trim(header_line)
+            if (header_line(pos:pos) == delim) ncols = ncols + 1
+        end do
+
+        if (allocated(column_labels)) deallocate(column_labels)
+        allocate(column_labels(ncols))
+
+        pos = 1
+        do j = 1, ncols
+            call get_token(header_line, pos, column_labels(j), delim)
+            column_labels(j) = adjustl(column_labels(j)) ! Trim whitespace from label
+        end do
+    else
+        do i = 1, skip_rows
+            read(file_unit, '(A)', iostat=ios) line
+            if (ios /= 0) then
+                status = 4
+                print*, 'Error: Failed to read header rows from file.'
+                close(file_unit)
+                return
+            end if
+            ! Skip comment lines in header
+            if (len_trim(line) > 0) then
+                if (line(1:1) == '#' .or. line(1:1) == '!') cycle
+            end if
+        end do
+
+        ! Skip comment lines before first data row
+        do
+            read(file_unit, '(A)', iostat=ios) line
+            if (ios /= 0) then
+                status = 5
+                print*, 'Error: Failed to read first data row.'
+                close(file_unit)
+                return
+            end if
+            if (len_trim(line) == 0) cycle
+            if (line(1:1) == '#' .or. line(1:1) == '!') cycle
+            exit
+        end do
+
+        ncols = 1
+        do pos = 1, len_trim(line)
+            if (line(pos:pos) == delim) ncols = ncols + 1
+        end do
+
+        backspace(file_unit)
+    end if
+
+    ! Determine number of data rows
     nrows = 0
-    ncols = 0
     do
-        read(unit, '(A)', iostat=ios) line
+        read(file_unit, '(A)', iostat=ios) line
         if (ios /= 0) exit
-        if (nrows == 0) then
-            ncols = 1
-            do pos = 1, len_trim(line)
-                if (line(pos:pos) == ',') ncols = ncols + 1
-            end do
-        end if
+        if (len_trim(line) == 0) cycle
+        if (line(1:1) == '#' .or. line(1:1) == '!') cycle
         nrows = nrows + 1
     end do
 
-    ! Allocate matrix
-    allocate(temp_matrix(nrows, ncols))
+    if (allocated(matrix)) deallocate(matrix)
+    allocate(matrix(nrows, ncols))
 
-    ! Rewind to beginning
-    rewind(unit)
+    rewind(file_unit)
+    do i = 1, skip_rows
+        read(file_unit, '(A)')
+    end do
 
-    ! Read data into matrix
     i = 1
     do
-        read(unit, '(A)', iostat=ios) line
+        read(file_unit, '(A)', iostat=ios) line
         if (ios /= 0) exit
+        if (len_trim(line) == 0) cycle
+        if (line(1:1) == '#' .or. line(1:1) == '!') cycle
         pos = 1
         do j = 1, ncols
-            call get_token(line, pos, token)
-            read(token, *) temp_matrix(i, j)
+            call get_token(line, pos, token, delim)
+            token = adjustl(token) ! Trim whitespace from token
+            if (len_trim(token) == 0) then
+                print*, "Warning: empty token encountered at row", i, "column", j
+                matrix(i, j) = 0.0_pv
+            else
+                read(token, *, iostat=ios) matrix(i, j)
+                if (ios /= 0) then
+                    status = 6
+                    print*, "Error: Failed to read value at row", i, "column", j
+                    close(file_unit)
+                    return
+                end if
+            end if
         end do
         i = i + 1
     end do
 
-    close(unit)
-    matrix = temp_matrix
+    close(file_unit)
+
+    status = 0  ! <-- Add this line to indicate successful read
 
     contains
 
-    subroutine get_token(input_line, input_pos, output_token)
+    subroutine get_token(input_line, input_pos, output_token, delim)
         character(len=*), intent(in) :: input_line
-        integer, intent(inout)       :: input_pos
-        character(len=15), intent(out):: output_token
-        integer                     :: start, lenend
+        integer, intent(inout) :: input_pos
+        character(len=*), intent(out) :: output_token
+        character(len=1), intent(in) :: delim
+        integer :: start, end
 
         start = input_pos
-        lenend = index(input_line(start:), ',') - 1
-        if (lenend < 0) lenend = len_trim(input_line) - start + 1
-        output_token = input_line(start:start+lenend-1)
-        input_pos = start + lenend + 1
+        end = index(input_line(start:), delim) - 1
+        if (end == -1) then
+            end = len_trim(input_line) - start + 1
+        end if
+        output_token = input_line(start:start+end-1)
+        output_token = adjustl(output_token) ! Trim whitespace from token
+        input_pos = start + end + 1
     end subroutine get_token
 
 end subroutine read_matrix
@@ -321,129 +485,6 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
     print*, ' '
 
 end subroutine write_labeled_matrix
-
-
-subroutine read_labeled_matrix(matrix, column_labels, filename, path)
-    ! Reads a labeled CSV file into a matrix, auto-detecting path format.
-
-    implicit none
-
-    ! Input/Output arguments
-    character(len=*), intent(in) :: filename
-    real(pv), allocatable, intent(out) :: matrix(:,:)
-    character(len=*), allocatable, intent(out) :: column_labels(:)
-    character(len=*), intent(in), optional :: path
-
-    ! Local variables
-    character(len=:), allocatable :: p
-    logical :: is_wsl
-    character(len=1) :: sep
-    character(len=256) :: full_path
-    integer :: unit, ios, i, j, nrows, ncols, pos
-    character(len=1000) :: line
-    character(len=15) :: token
-    real(pv), allocatable :: temp_matrix(:,:)
-
-    ! Construct full file path with proper separator
-    if (present(path)) then
-        p = trim(path)
-        is_wsl = detect_wsl_path(p)
-        if (is_wsl) then
-            sep = '/'
-        else
-            sep = '\\'
-        end if
-        if (p(len_trim(p):len_trim(p)) == sep) then
-            full_path = p // trim(filename)
-        else
-            full_path = p // sep // trim(filename)
-        end if
-    else
-        full_path = trim(filename)
-    end if
-
-    ! Open the file for reading
-    open(newunit=unit, file=full_path, status='old', action='read', &
-         form='formatted', iostat=ios)
-    if (ios /= 0) then
-        print*, 'Error: Could not open file ', trim(full_path)
-        stop
-    end if
-
-    ! Read header line for column labels
-    read(unit, '(A)', iostat=ios) line
-    if (ios /= 0) then
-        print*, 'Error: Failed to read column labels from file.'
-        stop
-    end if
-
-    ! Determine number of columns from header
-    ncols = 1
-    do pos = 1, len_trim(line)
-        if (line(pos:pos) == ',') ncols = ncols + 1
-    end do
-
-    ! Allocate and extract column labels
-    allocate(column_labels(ncols))
-    pos = 1
-    do j = 1, ncols
-        call get_token(line, pos, column_labels(j))
-    end do
-
-    ! Remove non-printable characters from the first label (fix BOM issue)
-    column_labels(1) = adjustl(strip_nonprintable(column_labels(1)))
-
-    ! Count data rows (excluding header)
-    nrows = 0
-    do
-        read(unit, '(A)', iostat=ios) line
-        if (ios /= 0) exit
-        if (len_trim(line) == 0) cycle
-        nrows = nrows + 1
-    end do
-
-    ! Allocate temporary matrix and rewind to data
-    allocate(temp_matrix(nrows, ncols))
-    rewind(unit)
-    read(unit, '(A)') line  ! skip header
-
-    ! Read data into matrix
-    i = 1
-    do
-        read(unit, '(A)', iostat=ios) line
-        if (ios /= 0) exit
-        if (len_trim(line) == 0) cycle
-        pos = 1
-        do j = 1, ncols
-            call get_token(line, pos, token)
-            if (len_trim(token) == 0) then
-                temp_matrix(i, j) = 0.0_pv
-            else
-                read(token, *) temp_matrix(i, j)
-            end if
-        end do
-        i = i + 1
-    end do
-
-    close(unit)
-    matrix = temp_matrix
-
-    contains
-
-    subroutine get_token(input_line, input_pos, output_token)
-        character(len=*), intent(in) :: input_line
-        integer, intent(inout) :: input_pos
-        character(len=15), intent(out) :: output_token
-        integer :: start, lenend
-
-        start = input_pos
-        lenend = index(input_line(start:), ',') - 1
-        if (lenend < 0) lenend = len_trim(input_line) - start + 1
-        output_token = input_line(start:start+lenend-1)
-        input_pos = start + lenend + 1
-    end subroutine get_token
-
-end subroutine read_labeled_matrix
 
 
 function detect_wsl_path(path_string) result(is_wsl)
