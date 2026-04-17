@@ -28,56 +28,53 @@ module IO_Toolbox
 
 contains
 
-subroutine write_matrix(matrix, filename, path, scientific)
-    ! Writes a matrix to a data file. Auto-detects the path format.
+subroutine write_matrix(matrix, filename, path, scientific, status, append)
+    ! Writes a matrix to a CSV file.
+    ! Optional: path (directory), scientific (use scientific notation),
+    !           status (error code: 0=success, 1=open failed), append (append to existing file).
 
     implicit none
 
     ! Input arguments
-    real(pv), intent(in)           :: matrix(:,:)
-    character(len=*), intent(in)   :: filename
+    real(pv), intent(in)                   :: matrix(:,:)
+    character(len=*), intent(in)           :: filename
     character(len=*), intent(in), optional :: path
-    logical,    intent(in), optional :: scientific
+    logical, intent(in), optional          :: scientific
+    integer, intent(out), optional         :: status   ! Improvement 7: optional error status
+    logical, intent(in), optional          :: append   ! Improvement 9: optional append mode
 
     ! Local variables
-    character(len=:), allocatable :: p
-    logical              :: is_wsl, use_scientific
-    character(len=1)     :: sep
+    logical              :: use_scientific, use_append
     character(len=256)   :: full_path
     integer              :: unit, ios, i, j
     character(len=30)    :: value
 
-    ! Determine if scientific notation should be used
-    if (present(scientific)) then
-        use_scientific = scientific
-    else
-        use_scientific = .false.
-    end if
+    ! Determine options
+    use_scientific = .false.
+    if (present(scientific)) use_scientific = scientific
 
-    ! Build full path with OS-specific separator
-    if (present(path)) then
-        p = trim(path)
-        is_wsl = detect_wsl_path(p)
-        if (is_wsl) then
-            sep = '/'
-        else
-            sep = '\'
-        end if
-        if (p(len_trim(p):len_trim(p)) == sep) then
-            full_path = p // trim(filename)
-        else
-            full_path = p // sep // trim(filename)
-        end if
-    else
-        full_path = trim(filename)
-    end if
+    use_append = .false.                                ! Improvement 9
+    if (present(append)) use_append = append
+
+    ! Improvement 3: delegate path construction to shared helper
+    call build_full_path(filename, full_path, path)
 
     ! Open file for writing
-    open(newunit=unit, file=full_path, status='replace', action='write', &
-         form='formatted', iostat=ios)
+    if (use_append) then
+        open(newunit=unit, file=trim(full_path), status='unknown', position='append', &
+             action='write', form='formatted', iostat=ios)
+    else
+        open(newunit=unit, file=trim(full_path), status='replace', &
+             action='write', form='formatted', iostat=ios)
+    end if
     if (ios /= 0) then
-        print*, 'Error opening file ', trim(full_path)
-        stop
+        if (present(status)) then               ! Improvement 7: return error code
+            status = 1
+            return
+        else
+            print*, 'Error opening file ', trim(full_path)
+            stop
+        end if
     end if
 
     ! Log to console
@@ -103,6 +100,8 @@ subroutine write_matrix(matrix, filename, path, scientific)
     close(unit)
     write(*,'(A)') 'File write complete.'
     print*, ' '
+
+    if (present(status)) status = 0             ! Improvement 7: success
 
 end subroutine write_matrix
 
@@ -153,8 +152,8 @@ subroutine read_matrix(matrix, filename, status, path, num_head_rows, column_lab
 
     ! Local variables
     integer :: i, j, ios, nrows, ncols, pos, skip_rows
-    character(len=1000) :: line
-    character(len=15) :: token
+    character(len=4096) :: line   ! Improvement 10: enlarged buffer for wide files
+    character(len=64) :: token    ! Improvement 10: enlarged token buffer
     character(len=256) :: full_path
     character(len=1) :: separator_unix, separator_win
     character(len=1) :: delim
@@ -166,6 +165,11 @@ subroutine read_matrix(matrix, filename, status, path, num_head_rows, column_lab
 
     ! Initialize status
     status = -1
+
+    ! Initialize header_line to length-0 to satisfy the compiler's uninitialized-variable
+    ! check.  The allocatable character is automatically reallocated on assignment (F2003+)
+    ! when the last header row is captured at line "header_line = trim(line)".
+    header_line = ''
 
     ! Set default number of header rows to skip
     skip_rows = 0
@@ -372,92 +376,82 @@ subroutine read_matrix(matrix, filename, status, path, num_head_rows, column_lab
 end subroutine read_matrix
 
 
-subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientific)
-    ! General Description: Writes a matrix with column labels to a CSV file.
+subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientific, status)
+    ! Writes a matrix with column labels to a CSV file.
+    ! Optional: path (directory), scientific (use scientific notation),
+    !           status (error code: 0=success, 1=open failed, 2=label count mismatch).
 
     implicit none
 
     ! Input arguments
-    real(pv), intent(in)           :: matrix(:,:)
-    character(len=*), intent(in)   :: filename
-    character(len=*), intent(in)   :: column_labels(:)
+    real(pv), intent(in)                   :: matrix(:,:)
+    character(len=*), intent(in)           :: filename
+    character(len=*), intent(in)           :: column_labels(:)
     character(len=*), intent(in), optional :: path
-    logical,    intent(in), optional :: scientific
+    logical, intent(in), optional          :: scientific
+    integer, intent(out), optional         :: status   ! Improvement 8: optional error status
 
     ! Local variables
-    integer              :: i, j, status, num_columns
+    integer              :: unit, ios, i, j, num_columns
     character(len=30)    :: value
-    logical              :: use_scientific, is_wsl
+    logical              :: use_scientific
     character(len=256)   :: full_path
-    character(len=:), allocatable :: p
 
     ! Determine if scientific notation should be used
-    if (present(scientific)) then
-        use_scientific = scientific
-    else
-        use_scientific = .false.
-    end if
+    use_scientific = .false.
+    if (present(scientific)) use_scientific = scientific
 
-    ! Construct the full path and detect format
-    if (present(path)) then
-        p = trim(path)
-        is_wsl = detect_wsl_path(p)
-        if (is_wsl) then
-            ! Linux/WSL: use '/'
-            if (p(len_trim(p):len_trim(p)) == '/') then
-                full_path = p // trim(filename)
-            else
-                full_path = p // '/' // trim(filename)
-            end if
-        else
-            ! Windows: use '\'
-            if (p(len_trim(p):len_trim(p)) == '\\') then
-                full_path = p // trim(filename)
-            else
-                full_path = p // '\\' // trim(filename)
-            end if
-        end if
-    else
-        full_path = trim(filename)
-    end if
+    ! Improvement 3: delegate path construction to shared helper
+    call build_full_path(filename, full_path, path)
 
-    ! Check labels length
+    ! Check that label count matches column count
     num_columns = size(matrix, 2)
     if (size(column_labels) /= num_columns) then
-        print*, " " !Spacer
-        print*, '-----------------------------------------------------------------------'
-        print*, 'Error in IO_Toolbox --> write_labeled_matrix(): '
-        print*, 'Number of column labels does not match number of matrix columns.'
-        print*, ' >>> Number of columns in matrix: ', num_columns
-        print*, ' >>> Number of column labels: ', size(column_labels)
-        print*, '-----------------------------------------------------------------------'
-        print*, " " !Spacer
-        stop
+        if (present(status)) then          ! Improvement 8: return error code
+            status = 2
+            return
+        else
+            print*, " "
+            print*, '-----------------------------------------------------------------------'
+            print*, 'Error in IO_Toolbox --> write_labeled_matrix(): '
+            print*, 'Number of column labels does not match number of matrix columns.'
+            print*, ' >>> Number of columns in matrix: ', num_columns
+            print*, ' >>> Number of column labels: ', size(column_labels)
+            print*, '-----------------------------------------------------------------------'
+            print*, " "
+            stop
+        end if
     end if
 
-    ! Open file for writing
-    open(unit=10, file=full_path, status='replace', action='write', form='formatted', iostat=status)
-    if (status /= 0) then
-        print*, " " !Spacer
-        print*, '-----------------------------------------------------------------------'
-        print*, 'Error in IO_Toolbox --> write_labeled_matrix(): '
-        print*, ' >>> Error opening file ', trim(full_path)
-        print*, '-----------------------------------------------------------------------'
-        print*, " " !Spacer
-        stop
+    ! Open file for writing (Improvement 1: use newunit instead of hardcoded unit=10)
+    open(newunit=unit, file=trim(full_path), status='replace', action='write', &
+         form='formatted', iostat=ios)
+    if (ios /= 0) then
+        if (present(status)) then          ! Improvement 8: return error code
+            status = 1
+            return
+        else
+            print*, " "
+            print*, '-----------------------------------------------------------------------'
+            print*, 'Error in IO_Toolbox --> write_labeled_matrix(): '
+            print*, ' >>> Error opening file ', trim(full_path)
+            print*, '-----------------------------------------------------------------------'
+            print*, " "
+            stop
+        end if
     end if
 
-    ! Log
-    print*, ' ' !Spacer
+    ! Log to console
+    print*, ' '
     write(*,'(A,A)') 'Writing labeled matrix to file ', trim(full_path)
 
     ! Write header labels
     do j = 1, num_columns
-        write(10, '(A15)', advance='no') adjustl(trim(column_labels(j)))
+        write(unit, '(A15)', advance='no') adjustl(trim(column_labels(j)))
         if (j < num_columns) then
-            write(10, '(A)', advance='no') ','
+            write(unit, '(A)', advance='no') ','
         else
-            write(10, *)
+            write(unit, *)
         end if
     end do
 
@@ -470,16 +464,18 @@ subroutine write_labeled_matrix(matrix, column_labels, filename, path, scientifi
                 write(value, '(F15.6)') matrix(i, j)
             end if
             if (j < num_columns) then
-                write(10, '(A)', advance='no') trim(value)//','
+                write(unit, '(A)', advance='no') trim(value)//','
             else
-                write(10, '(A)') trim(value)
+                write(unit, '(A)') trim(value)
             end if
         end do
     end do
 
-    close(10)
+    close(unit)
     write(*,'(A)') 'File write complete.'
     print*, ' '
+
+    if (present(status)) status = 0        ! Improvement 8: success
 
 end subroutine write_labeled_matrix
 
@@ -534,24 +530,35 @@ end function detect_wsl_path
 
 
 function system_is_wsl() result(is_wsl)
+    ! Improvement 6: cache result with save variables to avoid repeated file I/O
     implicit none
     logical :: is_wsl
+    logical, save :: cached = .false.
+    logical, save :: cache_valid = .false.
     integer :: unit_num, ios
     character(256) :: line
-    
-    is_wsl = .false.
-    
+
+    if (cache_valid) then
+        is_wsl = cached
+        return
+    end if
+
+    cached = .false.
+
     ! Try to read /proc/version to check for WSL
     open(newunit=unit_num, file="/proc/version", status="old", action="read", iostat=ios)
     if (ios == 0) then
         read(unit_num, '(A)', iostat=ios) line
         close(unit_num)
-        
+
         ! Check if the version contains "Microsoft" or "WSL"
         if (index(line, "Microsoft") > 0 .or. index(line, "WSL") > 0) then
-            is_wsl = .true.
+            cached = .true.
         endif
     endif
+
+    cache_valid = .true.
+    is_wsl = cached
 end function system_is_wsl
 
 
@@ -570,36 +577,47 @@ function strip_nonprintable(str) result(clean)
 end function strip_nonprintable
 
 
+subroutine build_full_path(filename, full_path, path)
+    ! Improvement 3: shared helper that constructs a full file path from an optional
+    ! directory and a filename, choosing the correct path separator automatically.
+    implicit none
+    character(len=*), intent(in)           :: filename
+    character(len=*), intent(out)          :: full_path
+    character(len=*), intent(in), optional :: path
+
+    character(len=1) :: sep
+    character(len=:), allocatable :: p
+
+    if (present(path) .and. len_trim(path) > 0) then
+        p = trim(path)
+        if (detect_wsl_path(p)) then
+            sep = '/'
+        else
+            sep = '\'
+        end if
+        if (p(len_trim(p):len_trim(p)) == sep) then
+            full_path = p // trim(filename)
+        else
+            full_path = p // sep // trim(filename)
+        end if
+    else
+        full_path = trim(filename)
+    end if
+end subroutine build_full_path
+
+
 subroutine write_std_output(S)
     implicit none
     type(std_output_file), intent(in) :: S
 
     integer           :: unit, ios, i, j
     integer           :: nrow, ncol
-    logical           :: is_wsl
     character(len=256):: full_path
     character(len=512):: line
     character(len=30) :: tmp
 
-    !— determine separator and build full_path
-    is_wsl = detect_wsl_path(trim(S%path))
-    if (len_trim(S%path) > 0) then
-      if (is_wsl) then
-        if ( S%path(len_trim(S%path):len_trim(S%path)) == '/' ) then
-          full_path = trim(S%path)//trim(S%filename)
-        else
-          full_path = trim(S%path)//'/'//trim(S%filename)
-        end if
-      else
-        if ( S%path(len_trim(S%path):len_trim(S%path)) == '\' ) then
-          full_path = trim(S%path)//trim(S%filename)
-        else
-          full_path = trim(S%path)//'\'//'\'//trim(S%filename)
-        end if
-      end if
-    else
-      full_path = trim(S%filename)
-    end if
+    !— Improvement 2+3: use shared build_full_path helper (fixes double-backslash bug)
+    call build_full_path(trim(S%filename), full_path, S%path)
 
     !— open file
     open(newunit=unit, file=full_path, status='replace', action='write', form='formatted', iostat=ios)
@@ -688,6 +706,8 @@ END SUBROUTINE prv
 
 
 SUBROUTINE piv(A)
+    ! Improvement 4: explicit implicit none for clarity
+    IMPLICIT NONE
     INTEGER, INTENT(IN) :: A(:)
     INTEGER :: i
     DO i = 1, SIZE(A)
@@ -699,6 +719,8 @@ END SUBROUTINE piv
 SUBROUTINE prm(matrix)
     ! This subroutine prints a two-dimensional array of real numbers
     ! prm = print real matrix
+    ! Improvement 4: explicit implicit none for clarity
+    IMPLICIT NONE
 
     REAL(pv), INTENT(IN) :: matrix(:,:)
     INTEGER :: i, j

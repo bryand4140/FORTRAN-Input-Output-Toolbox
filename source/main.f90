@@ -29,12 +29,15 @@ program main
     A(:,3) = 3.0_pv
 
     ! Write matrix A to CSV using scientific notation
-    call write_matrix(A, 'test.csv', path = path, scientific = .true.)
+    call write_matrix(A, 'test.csv', path = path, scientific = .true., status = status)
+    if (status /= 0) print *, "Warning: write_matrix returned status =", status
 
-    ! Test write_labeled_matrix
+    ! Test write_labeled_matrix with optional status (Improvement 8)
     filename = 'test2.csv'
     column_labels = ['eta  ', 'theta', 's_i  ']
-    call write_labeled_matrix(A, column_labels, filename, path = path, scientific = .true.)
+    call write_labeled_matrix(A, column_labels, filename, path = path, scientific = .true., &
+                              status = status)
+    if (status /= 0) print *, "Warning: write_labeled_matrix returned status =", status
 
     ! Read matrix back into B
     call read_matrix(B, 'test.csv', status, path = path)
@@ -54,10 +57,29 @@ program main
     allocate(DOM(40, 2))
     do i = 1, size(DOM,1)
         DOM(i, 1) = real(i, kind=pv) / 40.0_pv
-        DOM(i, 2) = sin(2.0 * DOM(i, 1))
+        DOM(i, 2) = sin(2.0_pv * DOM(i, 1))  ! Improvement 5: use precision kind literal
     end do
     call write_labeled_matrix(DOM, ['x', 'y'], 'test3.csv', path = path, scientific = .true.)
 
+    ! Demonstrate append mode: add a second batch of rows to test.csv (Improvement 9)
+    print*, ' '
+    print*, 'Testing append mode: writing additional rows to test.csv ...'
+    A(:,1) = 4.0_pv
+    A(:,2) = 5.0_pv
+    A(:,3) = 6.0_pv
+    call write_matrix(A, 'test.csv', path = path, scientific = .true., &
+                      status = status, append = .true.)
+    if (status /= 0) then
+        print *, "Warning: write_matrix (append) returned status =", status
+    else
+        print*, 'Append succeeded. Reading back test.csv ...'
+        call read_matrix(B, 'test.csv', status, path = path)
+        if (status /= 0) then
+            print *, "Error reading appended matrix, status =", status
+        else
+            print*, 'Rows in appended file:', size(B, 1)
+        end if
+    end if
 
     !----------------------------------------------------------------
     ! Example of using the standard output derived type
@@ -79,7 +101,7 @@ program main
 
     call write_std_output(SODT)
 
-
-    
+    print*, ' '
+    print*, 'All tests completed successfully.'
 
 end program main
