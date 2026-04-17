@@ -166,7 +166,9 @@ subroutine read_matrix(matrix, filename, status, path, num_head_rows, column_lab
     ! Initialize status
     status = -1
 
-    ! Initialize header_line to empty to prevent use-before-set
+    ! Initialize header_line to length-0 to satisfy the compiler's uninitialized-variable
+    ! check.  The allocatable character is automatically reallocated on assignment (F2003+)
+    ! when the last header row is captured at line "header_line = trim(line)".
     header_line = ''
 
     ! Set default number of header rows to skip
